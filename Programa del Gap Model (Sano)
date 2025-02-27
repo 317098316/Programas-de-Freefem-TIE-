@@ -1,0 +1,76 @@
+Aqui se presente el codigo del Gap Model (Sano) de la TIE:
+
+// Define los parametros del problema
+real radio = 1.0;
+real alpha = 0.2;  // Define alpha, la longitud de cada electrodo.
+int K = 4;  // Define K, el numero de electrodos.
+
+// Crea arreglos para contener los angulos de inicio y final para cada segmento
+real[int] angulosInicio(2*K), angulosFinal(2*K);
+
+// Llena los arreglos
+for(int i=0; i<K; i++) {
+  angulosInicio[2*i]   = i*2.0*pi/K;
+  angulosInicio[2*i+1] = angulosInicio[2*i] + alpha*2*pi/K;
+
+  angulosFinal[2*i]     = angulosInicio[2*i+1];
+  angulosFinal[2*i+1]   = (i+1)*2*pi/K;
+}
+
+// Define las fronteras
+border b(t=0, 1; i) {
+  real tt = t*(angulosFinal[i] - angulosInicio[i]) + angulosInicio[i]; // mapea t de [0,1] a [angulosInicio[i], angulosFinal[i]]
+  x = radio*cos(tt);
+  y = radio*sin(tt);
+  label = (i%2==0 ? i/2+1 : K+1);
+}
+
+// Generar malla
+int n = 50;
+int[int] nn(2*K);
+for(int i=0; i<2*K; i++) nn[i] = 50;
+mesh Th = buildmesh(b(nn));
+Th = adaptmesh(Th, 1./17., IsMetric=1, nbvx=10000);
+
+// Identificar regiones para definir sigma
+int inclusionRegion = Th(0.99, 0.99).region;
+cout << "Etiqueta de la region roja " << inclusionRegion << endl;
+int exteriorRegion = Th(0.1, 0.3).region;
+cout << "Etiqueta de la region negra " << exteriorRegion << endl;
+
+// Definir espacio de elementos finitos
+fespace Vh(Th, P1);
+int ndf = Vh.ndof;
+fespace Vh0(Th, P0);
+Vh0 sigma;
+Vh u, v;
+
+// Definir sigma en la diferentes regiones
+sigma = (region == inclusionRegion)*0.1 + (region == exteriorRegion)*1.0;
+plot(Th, cmm="Malla con etiquetas de frontera", wait=true, nbiso=20);
+
+// Definir la matriz A
+varf va(u, v) = int2d(Th)( sigma*dx(u)*dx(v) + dy(u)*dy(v) );
+varf vb(u, v) = int2d(Th)(1.*v);
+
+// Aplicar condiciones de contorno en los electrodos
+varf vg(u, v) = int1d(Th, 1)(-1.*v)    // Electrodo 1
+               + int1d(Th, 2)(1.*v)  // Electrodo 2
+               + int1d(Th, 3)(-1.*v)   // Electrodo 3
+               + int1d(Th, 4)(1.*v); // Electrodo 4
+
+matrix A = va(Vh, Vh);
+real[int] B = vb(0, Vh);
+real[int] g = vg(0, Vh);
+
+matrix AA = [ [ A ,  B ],
+              [ B', 0 ] ];
+
+real[int] gg(ndf+1), l(1);
+// Construir el bloque de rhs
+gg = [ g, 0];
+set(AA, solver=UMFPACK);
+real[int] x = AA^-1 * gg; // resolver el sistema lineal
+
+[u[], l] = x;  // establecer el valor
+plot(u, dim=2, wait=true, nbiso=400, cmm="Potencial en la malla");
