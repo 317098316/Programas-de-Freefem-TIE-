@@ -1,0 +1,84 @@
+Aqui se presente el codigo del Modelo Continuo de la TIE:
+
+// Define los parametros del problema
+real radio = 1.0;
+real radioobstruccion = 0.3;
+
+border FOmega(t = 0, 2*pi) { 
+	x = radio*cos(t); 
+	y = radio*sin(t); 
+	label=1; }
+
+border Fobs(t = 0, 2*pi) { 
+	x = radioobstruccion*cos(t)+0.1; 
+	y = radioobstruccion*sin(t)+0.3; 
+	label=10; }
+
+
+
+mesh Th = buildmesh(FOmega(100)+Fobs(100));
+
+//adapatacion de la malla, para que sea uniforme
+Th = adaptmesh(Th, 1./17., IsMetric=1, nbvx=10000);
+
+plot(Th,wait=1);
+
+// tejido sano
+int TS = Th(0.99, 0.99).region;
+cout << "Etiqueta de la region roja "<< TS << endl;
+
+//tejido sano
+int TN = Th(0.1, 0.3).region;
+cout << "Etiqueta de la region negra "<< TN << endl;
+
+//espacio de elementos finitos P1
+fespace Vh(Th, P1);
+//numero de elementos de el espacio
+int ndf = Vh.ndof;
+
+
+Vh u,v;
+Vh f = x^2 + y^2;
+//constante para hacer cero la integral
+real cf = -int2d(Th)(f)/int2d(Th)(1); 
+
+//hacer f de promedio cero
+f = f + cf;
+
+
+//espacio de elementos finitos P0
+fespace Vh0(Th, P0);
+
+
+Vh0 sigma;
+sigma = (region == TS)*0.1 + (region == TN)*1.0;
+
+plot(sigma,wait=1,fill=1,dim=3);
+
+
+
+
+
+//Definimos a la matriz A
+varf va(u,v) = int2d(Th)( sigma*dx(u)*dx(v) + dy(u)*dy(v) );
+varf vb(u,v)= int2d(Th)(1.*v);
+varf vg(u,v)= int1d(Th)(f*v);
+
+matrix A=va(Vh,Vh);
+real[int]  B = vb(0,Vh); 	
+real[int] g = vg(0,Vh);
+
+matrix AA = [ [ A ,  B ] ,
+              [ B', 0 ] ] ;
+
+real[int]  rhs(ndf+1),lambda(1);
+// build the block rhs 
+rhs = [ g, 0];
+
+
+set(AA,solver=UMFPACK);
+
+real[int] x = AA^-1*rhs; // solve the linear systeme 
+
+[u[],lambda] = x;  // set the value 
+plot(u,dim=2,wait=1,nbiso=400);
